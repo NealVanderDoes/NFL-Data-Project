@@ -3,15 +3,26 @@ from PySide6.QtCore import Qt, QSize, QAbstractTableModel, QModelIndex
 from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QComboBox, QTableView
 
 from nfl_data import team_names, years, weekly_data
-
+import nfl_data_py as nfl
 
 class TableModel(QAbstractTableModel):
+    """
+    Represents a table model for managing and displaying data using Qt's model-view framework.
 
-    def __init__(self, data):
+    This class is designed to interface between a pandas DataFrame and a Qt TableView. It manages
+    the data and provides the necessary methods to access data for display and interaction with
+    the Qt view. It supports retrieving data for display, determining the number of rows and
+    columns, and fetching header information for rows and columns.
+
+    :ivar _data: The pandas DataFrame containing the model's data.
+    :type _data: pandas.DataFrame
+    """
+
+    def __init__(self, data) -> None:
         super().__init__()
         self._data = data
 
-    def data(self, index: QModelIndex, role: int = Qt.DisplayRole):
+    def data(self, index: QModelIndex, role: int = Qt.DisplayRole) -> str | None:
         if index.isValid() and role == Qt.DisplayRole:
             value = self._data.iloc[index.row(), index.column()]
             return str(value)
@@ -23,7 +34,7 @@ class TableModel(QAbstractTableModel):
     def columnCount(self, index: QModelIndex = ...):
         return self._data.shape[1]
 
-    def headerData(self, section: int, orientation: Qt.Orientation, role: int = Qt.DisplayRole):
+    def headerData(self, section: int, orientation: Qt.Orientation, role: int = Qt.DisplayRole) -> str | None:
         # this section is the index of the column/row.
         if role == Qt.DisplayRole:
             if orientation == Qt.Orientation.Horizontal:
@@ -54,11 +65,11 @@ class MainWindow(QMainWindow):
     :type model: TableModel
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
 
         self.setWindowTitle("NFL Data")
-        self.setFixedSize(QSize(800, 600))
+        self.setFixedSize(QSize(1280, 720))
 
         container = QWidget()
         layout = QVBoxLayout(container)
@@ -66,6 +77,7 @@ class MainWindow(QMainWindow):
 
         self.team_combobox = QComboBox()
         self.team_combobox.addItems(team_names())
+        self.team_combobox.activated.connect(self.update_table_model)
 
         self.year_combobox = QComboBox()
         self.year_combobox.addItems(years())
@@ -73,21 +85,40 @@ class MainWindow(QMainWindow):
         self.year_combobox.activated.connect(self.update_table_model)
 
         self.table = QTableView()
-        self.model = TableModel(weekly_data(self.year_combobox_value()))
+        self.model = TableModel(weekly_data(self.year_combobox_value(), self.team_combobox_value()))
         self.table.setModel(self.model)
 
         layout.addWidget(self.team_combobox)
         layout.addWidget(self.year_combobox)
         layout.addWidget(self.table)
 
-    def year_combobox_value(self):
+
+    def team_combobox_value(self) -> str | None:
+        """
+        Returns the value of the team combobox selection as string.
+        :return:
+        """
+        data = nfl.import_weekly_data([2024], columns=['recent_team'])
+        teams = [team for team in team_names()]
+        abbr = sorted(set([abbr for abbr in data["recent_team"]]))
+        teams_dict = dict(zip(teams, abbr))
+
+        selected_team: str = str(self.team_combobox.currentText())
+
+        for keys in teams_dict.keys():
+            if selected_team in keys:
+                return teams_dict[selected_team]
+        return None
+
+    def year_combobox_value(self) -> int:
         """
         Returns the value of the combobox year selection as int.
+        :return:
         """
         value: int = int(self.year_combobox.currentText())
         return value
 
-    def update_table_model(self):
+    def update_table_model(self) -> None:
         """
         Replace the data in the model whenever the combobox selection changes.
         Retrieves year from combobox value
@@ -98,9 +129,10 @@ class MainWindow(QMainWindow):
 
         Handles invalid data using an else statement
         """
+        team = self.team_combobox_value()
         year = self.year_combobox_value()
-        if year:
-            data = weekly_data(year)
+        if year and team:
+            data = weekly_data(year, team)
             if isinstance(data, pd.DataFrame) and not data.empty:
                 self.model = TableModel(data)
                 self.table.setModel(self.model)
